@@ -11,17 +11,20 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cors());
 app.use(express.json());
 
-// Connect to Render PostgreSQL Database
+// Connect to Neon PostgreSQL Database
 const db = new pg.Client({
     connectionString: process.env.DATABASE_URL,
     ssl: {
-        rejectUnauthorized: false, // Required for Render PostgreSQL
+        rejectUnauthorized: true // Changed for Neon Postgres
     },
 });
 
 db.connect()
     .then(() => console.log("✅ Connected to PostgreSQL Database!"))
-    .catch((err) => console.error("❌ Database Connection Error:", err));
+    .catch((err) => {
+        console.error("❌ Database Connection Error:", err);
+        process.exit(1); // Exit if we can't connect to database
+    });
 
 let oldname = "";
 
@@ -110,23 +113,30 @@ app.post("/create", async (req, res) => {
     const validateText2 = (input) => /^[A-Za-z0-9\s\W]+$/.test(input);
 
     if (!name || !city || !address || !state) {
-        return res.status(400).json({ message: "All fields are required!" });
+        return res.status(400).json({ success: false, message: "All fields are required!" });
     }
     if (!validateText(name) || !validateText(city) || !validateText2(address) || !validateText(state)) {
-        return res.status(400).json({ message: "Only letters and spaces are allowed!" });
+        return res.status(400).json({ success: false, message: "Only letters and spaces are allowed!" });
     }
 
     try {
+        // First check if the name already exists
+        const existingCheck = await db.query("SELECT name FROM information WHERE LOWER(name) = LOWER($1)", [name]);
+        
+        if (existingCheck.rows.length > 0) {
+            return res.status(400).json({ success: false, message: "Name already exists!" });
+        }
+
         await db.query(
             "INSERT INTO information (name, city, address, state) VALUES ($1, $2, $3, $4)",
             [name, city, address, state]
         );
 
         console.log("✅ Inserted data into the database");
-        res.status(201).json({ message: "Data inserted successfully!" });
+        res.status(201).json({ success: true, message: "Data inserted successfully!" });
     } catch (error) {
         console.error("❌ Database error:", error);
-        res.status(500).json({ message: "Database error. Please try again." });
+        res.status(500).json({ success: false, message: "Database error. Please try again." });
     }
 });
 
